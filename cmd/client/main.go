@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"time"
+	"os"
+	"os/signal"
 	"tunnel/core"
 )
 
@@ -12,12 +13,12 @@ func main() {
 		{443, "himiku.com:443"},
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	after := time.After(time.Second * 5)
+	interrupt := make(chan os.Signal)
+	signal.Notify(interrupt, os.Interrupt)
 	go func() {
-		<-after
+		<-interrupt
 		cancel()
 	}()
-
 	client.Start(ctx)
 
 }

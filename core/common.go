@@ -18,11 +18,3 @@ func CopyStream(dst io.Writer, src io.Reader) {
 		log.Warn("copy error", "err", err)
 	}
 }
-
-var relayServerType = uint8(0)
-var proxyServerType = uint8(0)
-
-type handshakePacket struct {
-	Port       uint16
-	ServerType uint8
-}

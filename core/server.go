@@ -13,11 +13,6 @@ import (
 type Server struct {
 }
 
-func NewServer() *Server {
-	s := &Server{}
-	return s
-}
-
 func (s *Server) Start(addr string) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {

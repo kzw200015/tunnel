@@ -19,7 +19,9 @@ func main() {
 
 	flag.Parse()
 	if *listenAddr != "" {
-		server := &core.Server{}
+		server := &core.Server{
+			Token: "200015",
+		}
 		server.Start(*listenAddr)
 	} else if *serverAddr != "" {
 		var proxies []core.Proxy
@@ -50,19 +52,21 @@ func main() {
 			}
 		}
 
+		ctx, cancel := context.WithCancel(context.Background())
 		client := &core.Client{
 			ServerAddr: *serverAddr,
-			Proxies:    proxies,
+			Token:      "200015",
+			Ctx:        ctx,
 			Relays:     relays,
+			Proxies:    proxies,
 		}
-		ctx, cancel := context.WithCancel(context.Background())
 		interrupt := make(chan os.Signal)
 		signal.Notify(interrupt, os.Interrupt)
 		go func() {
 			<-interrupt
 			cancel()
 		}()
-		client.Start(ctx)
+		client.Start()
 	}
 
 }

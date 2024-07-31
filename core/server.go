@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/binary"
 	"github.com/pkg/errors"
 	"github.com/xtaci/smux"
@@ -11,9 +12,12 @@ import (
 )
 
 type Server struct {
+	Token     string
+	tokenHash [32]byte
 }
 
 func (s *Server) Start(addr string) {
+	s.tokenHash = Hash(s.Token)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Error("监听失败", "addr", addr, "err", err)
@@ -28,18 +32,18 @@ func (s *Server) Start(addr string) {
 			log.Warn("接受连接失败", "err", err)
 			continue
 		}
-		go handleRelayConnection(conn)
+		go s.handleRelayConnection(conn)
 	}
 }
 
-func handleRelayConnection(conn net.Conn) {
+func (s *Server) handleRelayConnection(conn net.Conn) {
 	defer CloseAndLog(conn)
 
-	var port uint16
+	handshakePacket := HandshakePacket{}
 	timeout := time.After(5 * time.Second)
 	handshakeDone := make(chan error)
 	go func() {
-		err := binary.Read(conn, binary.BigEndian, &port)
+		err := binary.Read(conn, binary.BigEndian, &handshakePacket)
 		if err != nil {
 			handshakeDone <- err
 			return
@@ -48,18 +52,21 @@ func handleRelayConnection(conn net.Conn) {
 	}()
 	select {
 	case <-timeout:
-		log.Error("读取端口超时")
+		log.Error("握手口超时")
 		return
 	case err := <-handshakeDone:
 		if err != nil {
-			log.Error("读取端口失败", "err", err)
+			log.Error("握手失败", "err", err)
 			return
-		} else {
-			log.Info("读取端口成功", "port", port)
 		}
 	}
 
-	session, err := smux.Server(conn, Config)
+	if !bytes.Equal(s.tokenHash[:], handshakePacket.Token[:]) {
+		log.Warn("鉴权失败")
+		return
+	}
+
+	session, err := smux.Server(conn, SmuxConfig)
 	if err != nil {
 		log.Error("创建smux会话失败", "err", err)
 		return
@@ -67,7 +74,7 @@ func handleRelayConnection(conn net.Conn) {
 	defer CloseAndLog(session)
 	closeChan := session.CloseChan()
 
-	portInt := int(port)
+	portInt := int(handshakePacket.Port)
 	portStr := strconv.Itoa(portInt)
 	listener, err := net.Listen("tcp", ":"+portStr)
 	if err != nil {
@@ -92,11 +99,11 @@ func handleRelayConnection(conn net.Conn) {
 			continue
 		}
 		log.Info("映射端口接受连接", "port", portInt, "remoteAddr", c.RemoteAddr())
-		go handleIncomingConnection(session, c)
+		go s.handleIncomingConnection(session, c)
 	}
 }
 
-func handleIncomingConnection(session *smux.Session, conn net.Conn) {
+func (s *Server) handleIncomingConnection(session *smux.Session, conn net.Conn) {
 	defer CloseAndLog(conn)
 
 	stream, err := session.OpenStream()

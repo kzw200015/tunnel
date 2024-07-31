@@ -18,3 +18,8 @@ func CopyStream(dst io.Writer, src io.Reader) {
 		log.Warn("copy error", "err", err)
 	}
 }
+
+type HandshakePacket struct {
+	Token [32]byte
+	Port  uint16
+}

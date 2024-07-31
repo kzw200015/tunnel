@@ -17,6 +17,8 @@ var dialer net.Dialer
 
 type Client struct {
 	ServerAddr string
+	Token      string
+	Ctx        context.Context
 	Relays     []Relay
 	Proxies    []Proxy
 }
@@ -30,47 +32,50 @@ type Proxy struct {
 	RemotePort uint16
 }
 
-func (c *Client) Start(ctx context.Context) {
+func (c *Client) Start() {
 	var wg sync.WaitGroup
 	if c.Relays != nil {
 		for _, mapper := range c.Relays {
 			wg.Add(1)
-			go startRelay(ctx, &wg, mapper, c.ServerAddr)
+			go c.startRelay(&wg, mapper)
 		}
 	}
 	if c.Proxies != nil {
 		for _, proxy := range c.Proxies {
 			wg.Add(1)
-			go startProxy(ctx, &wg, proxy, c.ServerAddr)
+			go c.startProxy(&wg, proxy)
 		}
 	}
 	wg.Wait()
 	log.Info("客户端已关闭")
 }
 
-func createSession(ctx context.Context, remotePort uint16, serverAddr string) (*smux.Session, net.Conn, error) {
-	conn, err := dialer.DialContext(ctx, "tcp", serverAddr)
+func (c *Client) createSession(remotePort uint16) (*smux.Session, net.Conn, error) {
+	conn, err := dialer.DialContext(c.Ctx, "tcp", c.ServerAddr)
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
 	go func() {
-		<-ctx.Done()
+		<-c.Ctx.Done()
 		CloseAndLog(conn)
 		log.Info("关闭服务端连接")
 	}()
 
-	err = binary.Write(conn, binary.BigEndian, remotePort)
+	err = binary.Write(conn, binary.BigEndian, HandshakePacket{
+		Port:  remotePort,
+		Token: Hash(c.Token),
+	})
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "发送握手包失败")
 	}
 
-	session, err := smux.Client(conn, Config)
+	session, err := smux.Client(conn, SmuxConfig)
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
 
 	go func() {
-		<-ctx.Done()
+		<-c.Ctx.Done()
 		CloseAndLog(session)
 		log.Info("关闭smux会话")
 	}()
@@ -78,12 +83,12 @@ func createSession(ctx context.Context, remotePort uint16, serverAddr string) (*
 	return session, conn, err
 }
 
-func startProxy(ctx context.Context, wg *sync.WaitGroup, proxy Proxy, serverAddr string) {
+func (c *Client) startProxy(wg *sync.WaitGroup, proxy Proxy) {
 	defer func() {
 		wg.Done()
 	}()
 
-	session, conn, err := createSession(ctx, proxy.RemotePort, serverAddr)
+	session, conn, err := c.createSession(proxy.RemotePort)
 	if err != nil {
 		log.Info("创建smux会话失败", "err", err)
 		return
@@ -99,12 +104,12 @@ func startProxy(ctx context.Context, wg *sync.WaitGroup, proxy Proxy, serverAddr
 	}
 }
 
-func startRelay(ctx context.Context, wg *sync.WaitGroup, relay Relay, serverAddr string) {
+func (c *Client) startRelay(wg *sync.WaitGroup, relay Relay) {
 	defer func() {
 		wg.Done()
 	}()
 
-	session, conn, err := createSession(ctx, relay.RemotePort, serverAddr)
+	session, conn, err := c.createSession(relay.RemotePort)
 	if err != nil {
 		log.Info("创建smux会话失败", "err", err)
 		return
@@ -125,26 +130,26 @@ func startRelay(ctx context.Context, wg *sync.WaitGroup, relay Relay, serverAddr
 			log.Error("接受smux流失败", "err", err)
 			continue
 		}
-		go handleTargetConnection(ctx, stream, relay.TargetAddr)
+		go c.handleTargetConnection(stream, relay.TargetAddr)
 	}
 }
 
-func handleTargetConnection(ctx context.Context, stream *smux.Stream, targetAddr string) {
+func (c *Client) handleTargetConnection(stream *smux.Stream, targetAddr string) {
 	defer CloseAndLog(stream)
 	go func() {
-		<-ctx.Done()
+		<-c.Ctx.Done()
 		CloseAndLog(stream)
 		log.Info("关闭目标连接")
 	}()
 
-	conn, err := dialer.DialContext(ctx, "tcp", targetAddr)
+	conn, err := dialer.DialContext(c.Ctx, "tcp", targetAddr)
 	if err != nil {
 		log.Error("请求目标地址失败", "err", err)
 		return
 	}
 	defer CloseAndLog(conn)
 	go func() {
-		<-ctx.Done()
+		<-c.Ctx.Done()
 		CloseAndLog(conn)
 		log.Info("关闭目标连接")
 	}()

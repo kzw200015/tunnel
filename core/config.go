@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-var Config = smux.DefaultConfig()
+var SmuxConfig = smux.DefaultConfig()
 
 func init() {
-	Config.KeepAliveInterval = 1 * time.Second
-	Config.KeepAliveTimeout = 5 * time.Second
+	SmuxConfig.KeepAliveInterval = 1 * time.Second
+	SmuxConfig.KeepAliveTimeout = 5 * time.Second
 }

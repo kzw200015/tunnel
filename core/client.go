@@ -34,6 +34,8 @@ type Relay struct {
 
 type Proxy struct {
 	RemotePort uint16
+	UserName   string
+	Password   string
 }
 
 func (c *Client) Start() {
@@ -100,7 +102,7 @@ func (c *Client) startProxy(wg *sync.WaitGroup, proxy Proxy) {
 	defer CloseAndLog(conn)
 	defer CloseAndLog(session)
 
-	socks5Server := socks5.Server{}
+	socks5Server := socks5.Server{Username: proxy.UserName, Password: proxy.Password}
 	log.Info(fmt.Sprintf("socks server start at %d", proxy.RemotePort))
 	err = socks5Server.Serve(&SmuxListener{Session: session})
 	if err != nil {

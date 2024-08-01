@@ -22,6 +22,7 @@ func (s *Server) Start(addr string) {
 	listener, err := tls.Listen("tcp", addr, TlsConfig)
 	if err != nil {
 		log.Error("listen failed", "addr", addr, "err", err)
+		return
 	}
 
 	for {

@@ -66,14 +66,12 @@ func client() {
 		var proxies []core.Proxy
 		entries := strings.Split(*p, ",")
 		for _, entry := range entries {
-			remotePort, err := core.ParsePort(entry)
+			proxy, err := processProxyEntry(entry)
 			if err != nil {
 				log.Error("error parsing proxy entry", "err", err)
 				return
 			}
-			proxies = append(proxies, core.Proxy{
-				RemotePort: remotePort,
-			})
+			proxies = append(proxies, proxy)
 		}
 		c.Proxies = proxies
 	}
@@ -110,5 +108,31 @@ func processRelayEntry(entry string) (core.Relay, error) {
 	return core.Relay{
 		RemotePort: port,
 		TargetAddr: targetAddr,
+	}, nil
+}
+
+func processProxyEntry(entry string) (core.Proxy, error) {
+	proxyArgs := strings.Split(entry, ":")
+	remotePort := proxyArgs[1]
+	port, err := core.ParsePort(remotePort)
+
+	var username string
+	var password string
+	{
+		authStr := proxyArgs[0]
+		if authStr != "" {
+			authEntries := strings.Split(authStr, "@")
+			username = authEntries[0]
+			password = authEntries[1]
+		}
+	}
+
+	if err != nil {
+		return core.Proxy{}, err
+	}
+	return core.Proxy{
+		RemotePort: port,
+		UserName:   username,
+		Password:   password,
 	}, nil
 }

@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/binary"
 	"github.com/pkg/errors"
 	"github.com/xtaci/smux"
@@ -18,18 +19,18 @@ type Server struct {
 
 func (s *Server) Start(addr string) {
 	s.tokenHash = Hash(s.Token)
-	listener, err := net.Listen("tcp", addr)
+	listener, err := tls.Listen("tcp", addr, TlsConfig)
 	if err != nil {
-		log.Error("监听失败", "addr", addr, "err", err)
+		log.Error("listen failed", "addr", addr, "err", err)
 	}
 
 	for {
 		conn, err := listener.Accept()
 		if errors.Is(err, net.ErrClosed) {
-			log.Error("监听器关闭", "err", err)
+			log.Error("listener closed", "err", err)
 			return
 		} else if err != nil {
-			log.Warn("接受连接失败", "err", err)
+			log.Warn("accept connection failed", "err", err)
 			continue
 		}
 		go s.handleRelayConnection(conn)
@@ -52,23 +53,23 @@ func (s *Server) handleRelayConnection(conn net.Conn) {
 	}()
 	select {
 	case <-timeout:
-		log.Error("握手口超时")
+		log.Error("handshake timeout")
 		return
 	case err := <-handshakeDone:
 		if err != nil {
-			log.Error("握手失败", "err", err)
+			log.Error("handshake failed", "err", err)
 			return
 		}
 	}
 
 	if !bytes.Equal(s.tokenHash[:], handshakePacket.Token[:]) {
-		log.Warn("鉴权失败")
+		log.Warn("validate token failed")
 		return
 	}
 
 	session, err := smux.Server(conn, SmuxConfig)
 	if err != nil {
-		log.Error("创建smux会话失败", "err", err)
+		log.Error("create smux session failed", "err", err)
 		return
 	}
 	defer CloseAndLog(session)
@@ -78,27 +79,27 @@ func (s *Server) handleRelayConnection(conn net.Conn) {
 	portStr := strconv.Itoa(portInt)
 	listener, err := net.Listen("tcp", ":"+portStr)
 	if err != nil {
-		log.Error("监听映射端口失败", "port", portInt, "err", err)
+		log.Error("listen remote port failed", "port", portInt, "err", err)
 		return
 	}
-	log.Info("监听映射端口", "port", portInt)
+	log.Info("listen remote port", "port", portInt)
 	defer CloseAndLog(listener)
 	go func() {
 		<-closeChan
-		log.Info("smux会话已关闭，停止监听映射端口", "port", portInt)
+		log.Info("smux session closed, stop listen remote port", "port", portInt)
 		CloseAndLog(listener)
 	}()
 
 	for {
 		c, err := listener.Accept()
 		if errors.Is(err, net.ErrClosed) {
-			log.Info("映射端口已关闭", "port", portInt, "err", err)
+			log.Info("remote port listener closed", "port", portInt, "err", err)
 			return
 		} else if err != nil {
-			log.Warn("映射端口接受连接失败", "port", portInt, "err", err)
+			log.Warn("remote port accept connection failed", "port", portInt, "err", err)
 			continue
 		}
-		log.Info("映射端口接受连接", "port", portInt, "remoteAddr", c.RemoteAddr())
+		log.Info("remote port accept connection", "port", portInt, "remoteAddr", c.RemoteAddr())
 		go s.handleIncomingConnection(session, c)
 	}
 }
@@ -108,7 +109,7 @@ func (s *Server) handleIncomingConnection(session *smux.Session, conn net.Conn) 
 
 	stream, err := session.OpenStream()
 	if err != nil {
-		log.Error("创建smux流失败", "err", err)
+		log.Error("open stream failed", "err", err)
 		return
 	}
 	defer CloseAndLog(stream)

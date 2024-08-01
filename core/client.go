@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"github.com/pkg/errors"
@@ -13,6 +14,9 @@ import (
 	"tailscale.com/net/socks5"
 )
 
+var tlsDialer = tls.Dialer{
+	Config: TlsConfig,
+}
 var dialer net.Dialer
 
 type Client struct {
@@ -47,18 +51,18 @@ func (c *Client) Start() {
 		}
 	}
 	wg.Wait()
-	log.Info("客户端已关闭")
+	log.Info("client stopped")
 }
 
 func (c *Client) createSession(remotePort uint16) (*smux.Session, net.Conn, error) {
-	conn, err := dialer.DialContext(c.Ctx, "tcp", c.ServerAddr)
+	conn, err := tlsDialer.DialContext(c.Ctx, "tcp", c.ServerAddr)
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
 	go func() {
 		<-c.Ctx.Done()
 		CloseAndLog(conn)
-		log.Info("关闭服务端连接")
+		log.Info("close session connection")
 	}()
 
 	err = binary.Write(conn, binary.BigEndian, HandshakePacket{
@@ -66,7 +70,7 @@ func (c *Client) createSession(remotePort uint16) (*smux.Session, net.Conn, erro
 		Token: Hash(c.Token),
 	})
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "发送握手包失败")
+		return nil, nil, errors.Wrap(err, "handshake failed")
 	}
 
 	session, err := smux.Client(conn, SmuxConfig)
@@ -77,7 +81,7 @@ func (c *Client) createSession(remotePort uint16) (*smux.Session, net.Conn, erro
 	go func() {
 		<-c.Ctx.Done()
 		CloseAndLog(session)
-		log.Info("关闭smux会话")
+		log.Info("close session")
 	}()
 
 	return session, conn, err
@@ -90,17 +94,17 @@ func (c *Client) startProxy(wg *sync.WaitGroup, proxy Proxy) {
 
 	session, conn, err := c.createSession(proxy.RemotePort)
 	if err != nil {
-		log.Info("创建smux会话失败", "err", err)
+		log.Info("create session failed", "err", err)
 		return
 	}
 	defer CloseAndLog(conn)
 	defer CloseAndLog(session)
 
 	socks5Server := socks5.Server{}
-	log.Info(fmt.Sprintf("代理端口 %d", proxy.RemotePort))
+	log.Info(fmt.Sprintf("socks server start at %d", proxy.RemotePort))
 	err = socks5Server.Serve(&SmuxListener{Session: session})
 	if err != nil {
-		log.Error("启动socks5服务失败", "err", err)
+		log.Error("sock5 server serve failed", "err", err)
 		return
 	}
 }
@@ -112,23 +116,23 @@ func (c *Client) startRelay(wg *sync.WaitGroup, relay Relay) {
 
 	session, conn, err := c.createSession(relay.RemotePort)
 	if err != nil {
-		log.Info("创建smux会话失败", "err", err)
+		log.Info("create session failed", "err", err)
 		return
 	}
 	defer CloseAndLog(conn)
 	defer CloseAndLog(session)
 
-	log.Info(fmt.Sprintf("映射端口 %d -> %s", relay.RemotePort, relay.TargetAddr))
+	log.Info(fmt.Sprintf("relay server start at %d -> %s", relay.RemotePort, relay.TargetAddr))
 
 	for {
 		stream, err := session.AcceptStream()
 		if errors.Is(err, io.ErrClosedPipe) {
-			log.Error("会话已关闭", "err", err)
+			log.Error("session closed", "err", err)
 			return
 		} else if errors.Is(err, smux.ErrTimeout) {
-			log.Error("接受smux流超时", "err", err)
+			log.Error("accept stream timeout", "err", err)
 		} else if err != nil {
-			log.Error("接受smux流失败", "err", err)
+			log.Error("accept stream failed", "err", err)
 			continue
 		}
 		go c.handleTargetConnection(stream, relay.TargetAddr)
@@ -140,19 +144,19 @@ func (c *Client) handleTargetConnection(stream *smux.Stream, targetAddr string) 
 	go func() {
 		<-c.Ctx.Done()
 		CloseAndLog(stream)
-		log.Info("关闭目标连接")
+		log.Info("close target connection")
 	}()
 
 	conn, err := dialer.DialContext(c.Ctx, "tcp", targetAddr)
 	if err != nil {
-		log.Error("请求目标地址失败", "err", err)
+		log.Error("dial target failed", "err", err)
 		return
 	}
 	defer CloseAndLog(conn)
 	go func() {
 		<-c.Ctx.Done()
 		CloseAndLog(conn)
-		log.Info("关闭目标连接")
+		log.Info("close target connection")
 	}()
 
 	go CopyStream(conn, stream)

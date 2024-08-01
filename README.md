@@ -2,7 +2,8 @@
 
 ## 构建
 ```bash
-go build -o tunnel .\cmd\main.go
+go generate ./... //生成证书
+go build -o tunnel ./cmd/tunnel
 ```
 ## 使用
 服务端

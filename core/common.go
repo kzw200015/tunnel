@@ -3,6 +3,7 @@ package core
 import (
 	"io"
 	log "log/slog"
+	"strconv"
 )
 
 func CloseAndLog(c io.Closer) {
@@ -22,4 +23,12 @@ func CopyStream(dst io.Writer, src io.Reader) {
 type HandshakePacket struct {
 	Token [32]byte
 	Port  uint16
+}
+
+func ParsePort(s string) (uint16, error) {
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, err
+	}
+	return uint16(i), err
 }

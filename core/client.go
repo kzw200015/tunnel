@@ -97,6 +97,7 @@ func (c *Client) startProxy(wg *sync.WaitGroup, proxy Proxy) {
 	defer CloseAndLog(session)
 
 	socks5Server := socks5.Server{}
+	log.Info(fmt.Sprintf("代理端口 %d", proxy.RemotePort))
 	err = socks5Server.Serve(&SmuxListener{Session: session})
 	if err != nil {
 		log.Error("启动socks5服务失败", "err", err)
